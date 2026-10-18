@@ -52,8 +52,10 @@ def gpu_info() -> str:
 
 def server_env() -> dict:
     env = {k: v for k, v in os.environ.items() if k != HMAC_ENV and not k.startswith("MODAL_")}
+    # Modal's runtime dir (/pkg) is root-only; drop it so the server's python doesn't try to import from it.
+    env["PYTHONPATH"] = ":".join(p for p in env.get("PYTHONPATH", "").split(":") if p and not p.startswith("/pkg"))
     env.update(
-        HOME="/tmp/server-home",
+        HOME="/cache/home",  # JIT/autotune caches land under $HOME/.cache; persist them across runs
         MODEL_DIR=config.MODEL_DIR,
         MODELS_ROOT="/models",
         CACHE_DIR="/cache",
@@ -67,16 +69,14 @@ def server_env() -> dict:
 
 
 def launch_server(log_path: Path) -> subprocess.Popen:
-    os.makedirs("/tmp/server-home", exist_ok=True)
-    os.chown("/tmp/server-home", config.SERVER_UID, config.SERVER_UID)
-    for d in ("/cache/xdg", "/cache/triton"):
+    for d in ("/cache/home", "/cache/xdg", "/cache/triton"):
         os.makedirs(d, exist_ok=True)
     os.chmod("/cache", 0o777)
     subprocess.run(["chmod", "-R", "a+rwX", "/cache"], check=False)
     logf = open(log_path, "w")
     return subprocess.Popen(
         ["bash", str(CANDIDATE_DIR / "serve.sh")],
-        cwd="/tmp/server-home",
+        cwd="/cache/home",
         env=server_env(),
         stdout=logf,
         stderr=subprocess.STDOUT,

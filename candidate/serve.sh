@@ -2,7 +2,7 @@
 # Candidate server launch. EDITABLE.
 # Contract: serve an OpenAI-compatible /v1/models + streaming /v1/completions on
 # 127.0.0.1:$PORT for the checkpoint in $MODEL_DIR. Runs as an unprivileged user
-# with no network. Writable: $HOME, /tmp, $CACHE_DIR (persists across runs).
+# with no network. Writable: $HOME (=/cache/home), /tmp, $CACHE_DIR; /cache persists across runs.
 set -euo pipefail
 
 exec python3 -m sglang.launch_server \
@@ -15,5 +15,6 @@ exec python3 -m sglang.launch_server \
   --kv-cache-dtype fp8_e4m3 \
   --moe-runner-backend flashinfer_cutlass \
   --mem-fraction-static 0.85 \
+  --cuda-graph-max-bs 1 \
   --host 127.0.0.1 \
   --port "$PORT"
