@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-18 23:19 UTC",
+ "generated_at": "2026-10-18 23:37 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 13.4704,
+ "spent_usd": 13.7228,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -153,6 +153,23 @@ window.SPEEDRUN = {
    "cost_usd": 2.067,
    "patch": "results/patches/0004.diff",
    "startup_s": 179.89
+  },
+  {
+   "kind": "experiment",
+   "id": 5,
+   "ts": "2026-10-18T23:35:37Z",
+   "message": "FP8 block requant of BF16 attention+shared experts (19.4->12.7 GB/fwd, modelopt_mixed) + MTP 2 steps + fused KDA verify",
+   "decision": "INVALID",
+   "reasons": [
+    "RuntimeError: server process exited before becoming ready"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": null,
+   "cost_usd": 0.2524,
+   "patch": "results/patches/0005.diff",
+   "startup_s": null
   }
  ]
 };
