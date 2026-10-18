@@ -1,10 +1,11 @@
 """Score and keep/revert rule.
 
-score = 100 * sqrt((tps / tps_base) * (ttft_base / ttft))   (baseline = 100)
+score = 100 * (tps / tps_base)^(2/3) * (ttft_base / ttft)^(1/3)   (baseline = 100)
 
-KEEP iff the run is valid, quality holds vs the baseline, neither axis regresses
-more than GUARDRAIL vs the current best, and the score beats the best by more
-than max(MIN_KEEP_DELTA, 2 * baseline noise).
+Decode is weighted twice as much as TTFT. KEEP iff the run is valid, quality
+holds vs the baseline, tok/s doesn't regress more than GUARDRAIL and TTFT not
+more than TTFT_GUARDRAIL vs the current best, and the score beats the best by
+more than max(MIN_KEEP_DELTA, 2 * baseline noise).
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ def merge(runs: list[dict]) -> dict:
 
 
 def score(m: dict, base: dict) -> float:
-    return 100 * math.sqrt((m["tps"] / base["tps"]) * (base["ttft_ms"] / m["ttft_ms"]))
+    return 100 * (m["tps"] / base["tps"]) ** config.DECODE_WEIGHT * (base["ttft_ms"] / m["ttft_ms"]) ** config.TTFT_WEIGHT
 
 
 def baseline_stats(runs: list[dict]) -> dict:
@@ -69,8 +70,8 @@ def decide(cand: dict, best: dict, base: dict) -> tuple[str, list[str]]:
         )
     if cand["tps"] < best["tps"] * (1 - config.GUARDRAIL):
         reasons.append(f"guardrail: tps {cand['tps']:.1f} < best {best['tps']:.1f} - {config.GUARDRAIL:.0%}")
-    if cand["ttft_ms"] > best["ttft_ms"] * (1 + config.GUARDRAIL):
-        reasons.append(f"guardrail: ttft {cand['ttft_ms']:.1f}ms > best {best['ttft_ms']:.1f}ms + {config.GUARDRAIL:.0%}")
+    if cand["ttft_ms"] > best["ttft_ms"] * (1 + config.TTFT_GUARDRAIL):
+        reasons.append(f"guardrail: ttft {cand['ttft_ms']:.1f}ms > best {best['ttft_ms']:.1f}ms + {config.TTFT_GUARDRAIL:.0%}")
 
     s_c, s_b, delta = score(cand, base), score(best, base), keep_delta(base)
     if s_c <= s_b * (1 + delta):

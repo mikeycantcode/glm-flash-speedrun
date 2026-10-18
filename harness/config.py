@@ -33,7 +33,10 @@ TTFT_LOOKBACK_CHUNKS = 16  # fake-early-token guard window
 REQUEST_TIMEOUT_S = 120
 
 # Keep / revert rule.
-GUARDRAIL = 0.05  # neither axis may regress more than 5% vs best
+DECODE_WEIGHT = 2 / 3  # score exponents: decode counts twice as much as TTFT
+TTFT_WEIGHT = 1 / 3
+GUARDRAIL = 0.05  # tok/s may not regress more than 5% vs best
+TTFT_GUARDRAIL = 0.50  # TTFT may regress up to 50% vs best (anti-buffering cap)
 MIN_KEEP_DELTA = 0.01  # score must beat best by max(this, 2 sigma noise)
 COMPRESS_RATIO_FLOOR = 0.7  # timed outputs' median zlib ratio must be >= 0.7x baseline
 

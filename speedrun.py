@@ -46,10 +46,15 @@ def append_run(entry: dict) -> None:
         f.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
+def seals() -> list[str]:
+    """SEAL is append-only: every harness version ever sealed, current one last."""
+    return SEAL.read_text().split() if SEAL.exists() else []
+
+
 def require_sealed() -> str:
     if not SEAL.exists():
         die("harness not sealed (run `speedrun.py seal` once the env is final)")
-    sealed = SEAL.read_text().strip()
+    sealed = seals()[-1]
     if harness_hash() != sealed:
         die("harness/ does not match SEAL: the benchmark was modified")
     return sealed
@@ -130,8 +135,11 @@ def commit_and_push(paths: list[str], message: str) -> None:
 
 
 def cmd_seal(_args) -> None:
-    SEAL.write_text(harness_hash() + "\n")
-    print(f"sealed harness {SEAL.read_text().strip()}")
+    h = harness_hash()
+    if h not in seals():
+        with SEAL.open("a") as f:
+            f.write(h + "\n")
+    print(f"sealed harness {h} ({len(seals())} versions)")
 
 
 def cmd_download(_args) -> None:
@@ -252,15 +260,15 @@ def cmd_verify(_args) -> None:
 
     from harness.modal_app import app, verify
 
-    sealed = SEAL.read_text().strip()
+    sealed = set(seals())
     runs = load_runs()
     items = [{"record": r["record"], "signature": r["signature"]} for r in runs if r["kind"] == "baseline"]
     items += [i for r in runs if r["kind"] == "experiment" for i in r["items"]]
     with modal.enable_output(), app.run():
         ok = verify.remote(items)
     bad_sig = sum(not x for x in ok)
-    bad_seal = sum(i["record"].get("harness_hash") != sealed for i in items)
-    print(f"{len(items)} records: {bad_sig} bad signatures, {bad_seal} with harness_hash != SEAL")
+    bad_seal = sum(i["record"].get("harness_hash") not in sealed for i in items)
+    print(f"{len(items)} records: {bad_sig} bad signatures, {bad_seal} with a harness_hash not in SEAL")
     sys.exit(1 if bad_sig or bad_seal else 0)
 
 

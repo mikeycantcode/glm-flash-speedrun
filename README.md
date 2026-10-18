@@ -11,7 +11,7 @@ Two axes: **decode tok/s** (maximize) and **TTFT** (minimize). An agent makes on
 ## Score
 
 ```
-score = 100 · sqrt( (tps / tps_baseline) · (ttft_baseline / ttft) )        baseline = 100
+score = 100 · (tps / tps_baseline)^(2/3) · (ttft_baseline / ttft)^(1/3)     baseline = 100
 ```
 
 An experiment is **KEEP** only if all hold:
@@ -19,7 +19,9 @@ An experiment is **KEEP** only if all hold:
 1. The run is valid (no integrity violations, see below).
 2. Probe accuracy ≥ baseline accuracy − 2 standard errors (two-proportion, Agresti–Coull).
    Always measured against the **baseline**, never the current best, so quality can't ratchet down.
-3. Neither tok/s nor TTFT regresses more than **5%** vs the current best.
+3. tok/s regresses no more than **5%** and TTFT no more than **50%** vs the current best.
+   Decode is weighted 2× over TTFT: a decode win that costs some TTFT is kept, and TTFT is knocked
+   down in later experiments. The 50% cap stops "buffer tokens, then burst" from gaming tok/s.
 4. Score beats the current best by more than `max(1%, 2σ)`, where σ is the run-to-run score noise
    measured by the baseline runs (separate containers).
 5. Steps 1–4 still hold after a **second confirmation run** (winner's-curse guard); the two runs are pooled.
@@ -50,7 +52,7 @@ GLM chat format and an empty `<think></think>` block. Timed requests are shuffle
 
 - **Editable:** `candidate/` only. That covers the engine, its version, flags, patches, kernels,
   speculative decoding, other quantization recipes built from the pinned weights, and the image.
-- **Frozen:** `harness/` is sealed. `SEAL` holds its hash, and every signed result embeds the
+- **Frozen:** `harness/` is sealed. `SEAL` holds its hash history (append-only; last line is current), and every signed result embeds the
   harness hash that produced it. `speedrun.py` and `tests/` are frozen by policy: `run` refuses
   any uncommitted change outside `candidate/`, so edits to either show up in git history.
 - **Fixed hardware:** 1× B300, checked with `nvidia-smi` inside the container.
@@ -73,7 +75,7 @@ GLM chat format and an empty `<think></think>` block. Timed requests are shuffle
 | Pad text to inflate token counts | Count capped at 512; >5% over is a violation | `test_mechanical_cheats_invalidate[inflate]` |
 | Cheap filler after a real start | Median zlib ratio of timed outputs ≥ 0.7× baseline | `test_filler_output_is_rejected` |
 | Lossy speedups (aggressive quant, layer skipping) | 96 graded probes per run vs baseline accuracy | `test_wrong_answers_fail_quality` |
-| Buffer output to game tok/s | TTFT guardrail (5%) | `test_burst_streaming_trips_ttft_guardrail` |
+| Buffer output to game tok/s | TTFT weight + 50% TTFT cap (buffering D ms gains ≈D/3900 on decode, loses ≈D/150 on TTFT) | `test_burst_streaming_trips_ttft_guardrail` |
 | Lucky noise counted as a win | Keep threshold ≥ 2σ of measured noise, plus a confirmation run | `test_honest_rerun_is_not_a_keep` |
 
 **Residual risks.** The candidate controls the base image, including its `python3`, which also runs

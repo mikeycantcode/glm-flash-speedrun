@@ -74,10 +74,12 @@ def cand(**kw):
     return m
 
 
-def test_score_is_100_at_baseline_and_geometric():
+def test_score_is_100_at_baseline_and_weights_decode_2x():
     assert scoring.score(BASE, BASE) == pytest.approx(100)
-    assert scoring.score(cand(tps=400), BASE) == pytest.approx(100 * 2**0.5)
-    assert scoring.score(cand(tps=400, ttft_ms=200), BASE) == pytest.approx(100)
+    assert scoring.score(cand(tps=400), BASE) == pytest.approx(100 * 2 ** (2 / 3))
+    assert scoring.score(cand(ttft_ms=50), BASE) == pytest.approx(100 * 2 ** (1 / 3))
+    # Doubling decode while doubling TTFT is a net win (decode weighs more).
+    assert scoring.score(cand(tps=400, ttft_ms=200), BASE) == pytest.approx(100 * 2 ** (1 / 3))
 
 
 def test_keep_requires_beating_noise():
@@ -85,10 +87,18 @@ def test_keep_requires_beating_noise():
     assert scoring.decide(cand(tps=220), BASE, BASE)[0] == "KEEP"
 
 
-def test_guardrail_blocks_trading_one_axis_away():
-    # +40% tps but TTFT +10%: geo-mean improves, guardrail still rejects
-    d, reasons = scoring.decide(cand(tps=280, ttft_ms=110), BASE, BASE)
-    assert d == "REVERT" and any("guardrail" in r for r in reasons)
+def test_decode_win_with_moderate_ttft_cost_is_kept():
+    # +40% tps, TTFT +10%: allowed (decode-weighted score improves, under the TTFT cap)
+    assert scoring.decide(cand(tps=280, ttft_ms=110), BASE, BASE)[0] == "KEEP"
+
+
+def test_guardrails_block_extreme_trades():
+    # Huge decode gain but TTFT +60%: over the anti-buffering cap
+    d, reasons = scoring.decide(cand(tps=600, ttft_ms=160), BASE, BASE)
+    assert d == "REVERT" and any("ttft" in r and "guardrail" in r for r in reasons)
+    # TTFT halved but decode -10%: decode guardrail
+    d, reasons = scoring.decide(cand(tps=180, ttft_ms=50), BASE, BASE)
+    assert d == "REVERT" and any("tps" in r and "guardrail" in r for r in reasons)
 
 
 def test_quality_gate_tolerates_noise_but_not_damage():
@@ -135,4 +145,4 @@ def test_seal_matches_harness():
     seal = ROOT / "SEAL"
     if not seal.exists():
         pytest.skip("not sealed yet")
-    assert seal.read_text().strip() == integrity.harness_hash(), "harness/ changed after sealing"
+    assert seal.read_text().split()[-1] == integrity.harness_hash(), "harness/ changed after sealing"
