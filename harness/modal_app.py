@@ -41,6 +41,12 @@ download_image = (
     .add_local_python_source("candidate")
 )
 util_image = modal.Image.debian_slim(python_version="3.12").add_local_python_source("candidate")
+convert_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("torch==2.14.1", index_url="https://download.pytorch.org/whl/cpu")
+    .pip_install("safetensors==0.8.0", "numpy==2.5.4")
+    .add_local_python_source("candidate")
+)
 
 
 def extra_models() -> list[tuple[str, str]]:
@@ -70,6 +76,31 @@ def download(repos: list[tuple[str, str]]) -> list[str]:
         models_vol.commit()
         done.append(f"{repo}@{rev}")
     return done
+
+
+@app.function(image=convert_image, volumes={"/models": models_vol}, cpu=16, memory=131072, timeout=4 * 3600)
+def convert(script: str) -> str:
+    """Run candidate/convert.py on the pinned checkpoint; output is keyed by the script's hash.
+
+    Derived weights can only come from the pinned weights through a public script, and the
+    benchmark still mounts the volume read-only and quality-gates the result.
+    """
+    import hashlib
+
+    sha = hashlib.sha256(script.encode()).hexdigest()[:16]
+    out = Path(config.DERIVED_ROOT) / sha
+    if (out / ".complete").exists():
+        return f"derived/{sha} (cached)"
+    tmp = out.with_name(sha + ".partial")
+    subprocess.run(["rm", "-rf", str(tmp)], check=True)
+    tmp.mkdir(parents=True)
+    script_path = Path("/tmp/convert.py")
+    script_path.write_text(script)
+    subprocess.run(["python", str(script_path), config.MODEL_DIR, str(tmp)], check=True)
+    (tmp / ".complete").write_text(sha)
+    tmp.rename(out)
+    models_vol.commit()
+    return f"derived/{sha}"
 
 
 @app.function(

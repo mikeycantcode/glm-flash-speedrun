@@ -102,6 +102,19 @@ def best_of(runs: list[dict], base: dict) -> dict:
     return kept[-1]["merged"] if kept else base
 
 
+def ensure_derived() -> None:
+    """Build (or reuse) the derived checkpoint for candidate/convert.py. CPU only."""
+    script = ROOT / "candidate" / "convert.py"
+    if not script.exists():
+        return
+    import modal
+
+    from harness.modal_app import app, convert
+
+    with modal.enable_output(), app.run():
+        print(convert.remote(script.read_text()))
+
+
 def remote_bench(n: int) -> list[dict]:
     import modal
 
@@ -199,6 +212,7 @@ def cmd_run(args) -> None:
     (PATCHES / f"{exp_id:04d}.diff").write_text(patch + "\n")
     best = best_of(runs, base)
 
+    ensure_derived()
     items = remote_bench(1)
     measured = [metrics_of(items[0], sealed)]
     decision, reasons = scoring.decide(scoring.merge(measured), best, base)

@@ -7,6 +7,7 @@ run the seeded workload, kill the server, sign the record.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -42,12 +43,36 @@ def log(msg: str) -> None:
     print(f"[bench {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 
+def host_info() -> dict:
+    """Host facts that can explain cross-container variance (CPU model, GPU clocks, power cap)."""
+    cpu = ""
+    try:
+        cpu = next(l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name"))
+    except (OSError, StopIteration):
+        pass
+    q = subprocess.run(
+        ["nvidia-smi", "--query-gpu=clocks.max.sm,clocks.max.mem,power.limit,pci.bus_id", "--format=csv,noheader"],
+        capture_output=True, text=True, check=False,
+    ).stdout.strip()
+    return {"cpu": cpu, "cpus": os.cpu_count(), "gpu_clocks_power_bus": q}
+
+
 def gpu_info() -> str:
     out = subprocess.run(
         ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
         capture_output=True, text=True, check=False,
     )
     return out.stdout.strip() or out.stderr.strip()
+
+
+def derived_dir() -> str | None:
+    """Ready derived checkpoint for this candidate's convert.py, if any."""
+    script = CANDIDATE_DIR / "convert.py"
+    if not script.exists():
+        return None
+    sha = hashlib.sha256(script.read_bytes()).hexdigest()[:16]
+    path = Path(config.DERIVED_ROOT) / sha
+    return str(path) if (path / ".complete").exists() else None
 
 
 def server_env() -> dict:
@@ -62,6 +87,7 @@ def server_env() -> dict:
         PORT=str(config.SERVER_PORT),
         XDG_CACHE_HOME="/cache/xdg",
         TRITON_CACHE_DIR="/cache/triton",
+        DERIVED_DIR=derived_dir() or "",
         HF_HUB_OFFLINE="1",
         TRANSFORMERS_OFFLINE="1",
     )
@@ -120,6 +146,8 @@ def main(out_path: str) -> None:
         "model_repo": config.MODEL_REPO,
         "model_revision": config.MODEL_REVISION,
         "gpu": gpu_info(),
+        "derived_dir": derived_dir(),
+        "host": host_info(),
         "violations": [],
     }
     log(f"harness={record['harness_hash'][:12]} candidate={record['candidate_hash'][:12]} gpu={record['gpu']}")

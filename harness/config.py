@@ -3,6 +3,7 @@
 MODEL_REPO = "nvidia/GLM-5.3-Flash-NVFP4"
 MODEL_REVISION = "da920bb0b9f4a06727223a349e55468e38352348"
 MODEL_DIR = f"/models/{MODEL_REPO}/{MODEL_REVISION}"
+DERIVED_ROOT = "/models/derived"  # outputs of candidate/convert.py, keyed by script hash
 
 GPU = "B300"
 GPU_NAME_MUST_CONTAIN = "B300"
