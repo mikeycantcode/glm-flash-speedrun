@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-18 21:10 UTC",
+ "generated_at": "2026-10-18 23:02 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 8.9632,
+ "spent_usd": 11.4034,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -33,7 +33,7 @@ window.SPEEDRUN = {
    "message": "baseline",
    "decision": "BASELINE",
    "reasons": [],
-   "score": 92.60421202022057,
+   "score": 94.911782550293,
    "tps": 130.25865107348352,
    "ttft_ms": 175.8542390000457,
    "accuracy": 0.8229166666666666,
@@ -48,7 +48,7 @@ window.SPEEDRUN = {
    "message": "baseline",
    "decision": "BASELINE",
    "reasons": [],
-   "score": 99.9092524046179,
+   "score": 99.80931419974262,
    "tps": 130.13959883121026,
    "ttft_ms": 150.94050249999214,
    "accuracy": 0.90625,
@@ -63,7 +63,7 @@ window.SPEEDRUN = {
    "message": "baseline",
    "decision": "BASELINE",
    "reasons": [],
-   "score": 100.22007647079081,
+   "score": 100.20542691173827,
    "tps": 130.87959304730003,
    "ttft_ms": 150.85865200003923,
    "accuracy": 0.84375,
@@ -78,7 +78,7 @@ window.SPEEDRUN = {
    "message": "baseline",
    "decision": "BASELINE",
    "reasons": [],
-   "score": 99.87130316865182,
+   "score": 99.98544766884898,
    "tps": 130.9292319741527,
    "ttft_ms": 151.97177399997486,
    "accuracy": 0.875,
@@ -95,7 +95,7 @@ window.SPEEDRUN = {
    "reasons": [
     "guardrail: ttft 161.9ms > best 151.3ms + 5%"
    ],
-   "score": 125.52269571150556,
+   "score": 138.50183589502444,
    "tps": 220.30773378352035,
    "ttft_ms": 161.8799175000163,
    "accuracy": 0.8958333333333334,
@@ -112,13 +112,30 @@ window.SPEEDRUN = {
    "reasons": [
     "guardrail: ttft 171.3ms > best 151.3ms + 5%"
    ],
-   "score": 123.24222755658461,
+   "score": 137.7283931473986,
    "tps": 224.72895423179818,
    "ttft_ms": 171.2961880000421,
    "accuracy": 0.9166666666666666,
    "cost_usd": 1.8734,
    "patch": "results/patches/0002.diff",
    "startup_s": 448.03
+  },
+  {
+   "kind": "experiment",
+   "id": 3,
+   "ts": "2026-10-18T22:44:36Z",
+   "message": "MTP self-speculation (EAGLE topk1, 3 steps) + flashinfer_trtllm MoE [re-run under decode-weighted rule]",
+   "decision": "KEEP",
+   "reasons": [
+    "score 100.00 -> 140.23"
+   ],
+   "score": 140.23353609804457,
+   "tps": 220.34253956450544,
+   "ttft_ms": 156.00593624999703,
+   "accuracy": 0.8802083333333334,
+   "cost_usd": 2.4402,
+   "patch": "results/patches/0003.diff",
+   "startup_s": 363.7
   }
  ]
 };
