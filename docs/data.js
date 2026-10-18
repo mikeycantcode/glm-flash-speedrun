@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-18 20:22 UTC",
+ "generated_at": "2026-10-18 20:55 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 5.532,
+ "spent_usd": 7.0898,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -85,6 +85,23 @@ window.SPEEDRUN = {
    "cost_usd": 0.9802,
    "patch": null,
    "startup_s": 308.56
+  },
+  {
+   "kind": "experiment",
+   "id": 1,
+   "ts": "2026-10-18T20:44:33Z",
+   "message": "MTP self-speculation (EAGLE topk1, 3 steps) + flashinfer_trtllm MoE runner (recipe default on B300)",
+   "decision": "REVERT",
+   "reasons": [
+    "guardrail: ttft 161.9ms > best 151.3ms + 5%"
+   ],
+   "score": 125.52269571150556,
+   "tps": 220.30773378352035,
+   "ttft_ms": 161.8799175000163,
+   "accuracy": 0.8958333333333334,
+   "cost_usd": 1.5578,
+   "patch": "results/patches/0001.diff",
+   "startup_s": 570.28
   }
  ]
 };
