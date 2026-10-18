@@ -31,12 +31,16 @@ bench_image = (
     .add_local_dir(ROOT / "harness", "/opt/bench/src/harness", copy=True, ignore=["**/__pycache__", "**/.DS_Store"])
     .add_local_dir(ROOT / "candidate", "/candidate", copy=True, ignore=["**/__pycache__", "**/.DS_Store"])
     .run_commands("chmod -R a-w /opt/bench /candidate")
+    .add_local_python_source("candidate")
 )
 
-download_image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub[hf_xet]==2.2.0")
-util_image = modal.Image.debian_slim(python_version="3.12").add_local_dir(
-    ROOT / "harness", "/root/harness", ignore=["**/__pycache__", "corpus"]
+# Every container re-imports this module, so every image needs the candidate package.
+download_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("huggingface_hub[hf_xet]==2.2.0")
+    .add_local_python_source("candidate")
 )
+util_image = modal.Image.debian_slim(python_version="3.12").add_local_python_source("candidate")
 
 
 def extra_models() -> list[tuple[str, str]]:
@@ -91,9 +95,6 @@ def bench(_i: int = 0) -> dict:
 
 @app.function(image=util_image, secrets=[hmac_secret], cpu=1, memory=1024, timeout=300)
 def verify(items: list[dict]) -> list[bool]:
-    import sys
-
-    sys.path.insert(0, "/root")
     from harness.integrity import verify as verify_sig
 
     key = os.environ["SPEEDRUN_HMAC_KEY"].encode()
