@@ -215,15 +215,22 @@ def cmd_run(args) -> None:
     ensure_derived()
     items = remote_bench(1)
     measured = [metrics_of(items[0], sealed)]
-    decision, reasons = scoring.decide(scoring.merge(measured), best, base)
+
+    def judge() -> tuple[str, list[str], dict]:
+        bad = [v for m in measured for v in m["violations"]]
+        if bad:  # invalid runs have no numbers to merge
+            return "INVALID", bad[:10], {**measured[-1], "violations": bad}
+        merged = scoring.merge(measured)
+        return (*scoring.decide(merged, best, base), merged)
+
+    decision, reasons, merged = judge()
     if decision == "KEEP":  # confirm with a second container before accepting
         print("candidate beat best; confirming with a second run")
         items += remote_bench(1)
         measured.append(metrics_of(items[1], sealed))
-        decision, reasons = scoring.decide(scoring.merge(measured), best, base)
+        decision, reasons, merged = judge()
 
-    merged = scoring.merge(measured)
-    score = scoring.score(merged, base) if not merged["violations"] else None
+    score = scoring.score(merged, base) if decision != "INVALID" else None
     entry = {
         "kind": "experiment", "id": exp_id, "message": args.m, "ts": items[0]["record"].get("started_at"),
         "decision": decision, "reasons": reasons, "score": score, "best_score_before": scoring.score(best, base),
