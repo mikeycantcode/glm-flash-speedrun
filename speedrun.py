@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -82,7 +83,12 @@ def spent(runs: list[dict]) -> float:
 
 
 def baseline_of(runs: list[dict]) -> dict | None:
-    base = [r["metrics"] for r in runs if r["kind"] == "baseline" and not r["metrics"]["violations"]]
+    """Pool valid baseline runs of the most recent baseline candidate only."""
+    bl = [r for r in runs if r["kind"] == "baseline"]
+    if not bl:
+        return None
+    current = bl[-1]["record"].get("candidate_hash")
+    base = [r["metrics"] for r in bl if r["record"].get("candidate_hash") == current and not r["metrics"]["violations"]]
     return scoring.baseline_stats(base) if len(base) >= 2 else None
 
 
@@ -113,7 +119,9 @@ def commit_and_push(paths: list[str], message: str) -> None:
     sh("git", "add", "--", *paths)
     sh("git", "commit", "-q", "-m", message)
     if sh("git", "remote", check=False):
-        sh("git", "push", "-q", check=False)
+        push = subprocess.run(["git", "push", "-q"], cwd=ROOT, capture_output=True, text=True)
+        if push.returncode != 0:
+            print(f"warning: git push failed; dashboard not updated:\n{push.stderr.strip()[-400:]}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------- commands
@@ -257,7 +265,8 @@ def cmd_verify(_args) -> None:
 def write_dashboard() -> None:
     runs = load_runs()
     base = baseline_of(runs)
-    repo = sh("git", "remote", "get-url", "origin", check=False).removesuffix(".git")
+    # Raw config value (no url.insteadOf rewrite), with any credentials stripped: this file is public.
+    repo = re.sub(r"//[^/@]+@", "//", sh("git", "config", "--get", "remote.origin.url", check=False)).removesuffix(".git")
     rows = []
     for r in runs:
         m = r["metrics"] if r["kind"] == "baseline" else r["merged"]

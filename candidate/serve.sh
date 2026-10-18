@@ -15,6 +15,7 @@ exec python3 -m sglang.launch_server \
   --kv-cache-dtype fp8_e4m3 \
   --moe-runner-backend flashinfer_cutlass \
   --mem-fraction-static 0.85 \
-  --cuda-graph-max-bs 1 \
+  --cuda-graph-max-bs-decode 1 \
+  --disable-prefill-cuda-graph \
   --host 127.0.0.1 \
   --port "$PORT"
