@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-18 23:02 UTC",
+ "generated_at": "2026-10-18 23:19 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 11.4034,
+ "spent_usd": 13.4704,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -136,6 +136,23 @@ window.SPEEDRUN = {
    "cost_usd": 2.4402,
    "patch": "results/patches/0003.diff",
    "startup_s": 363.7
+  },
+  {
+   "kind": "experiment",
+   "id": 4,
+   "ts": "2026-10-18T23:03:30Z",
+   "message": "MTP 2 steps (was 3; accept len ~2.2) + fused KDA verify (triton verify backend)",
+   "decision": "INVALID",
+   "reasons": [
+    "record harness_hash != SEAL"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": 0.890625,
+   "cost_usd": 2.067,
+   "patch": "results/patches/0004.diff",
+   "startup_s": 179.89
   }
  ]
 };
