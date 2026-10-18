@@ -1,0 +1,21 @@
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index aeaa55d..a89737f 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -13,9 +13,15 @@ exec python3 -m sglang.launch_server \
+   --dsa-prefill-backend trtllm \
+   --dsa-decode-backend trtllm \
+   --kv-cache-dtype fp8_e4m3 \
+-  --moe-runner-backend flashinfer_cutlass \
++  --moe-runner-backend flashinfer_trtllm \
+   --mem-fraction-static 0.85 \
+   --cuda-graph-max-bs-decode 1 \
+   --disable-prefill-cuda-graph \
++  --linear-attn-prefill-backend ptx_kda \
++  --dsa-paged-mqa-logits-backend cutedsl \
++  --speculative-algorithm EAGLE \
++  --speculative-eagle-topk 1 \
++  --speculative-num-steps 3 \
++  --speculative-num-draft-tokens 4 \
+   --host 127.0.0.1 \
+   --port "$PORT"

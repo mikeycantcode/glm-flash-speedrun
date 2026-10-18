@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-18 20:55 UTC",
+ "generated_at": "2026-10-18 21:10 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 7.0898,
+ "spent_usd": 8.9632,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -102,6 +102,23 @@ window.SPEEDRUN = {
    "cost_usd": 1.5578,
    "patch": "results/patches/0001.diff",
    "startup_s": 570.28
+  },
+  {
+   "kind": "experiment",
+   "id": 2,
+   "ts": "2026-10-18T20:57:08Z",
+   "message": "MTP 3/1/4 + trtllm MoE + ptx_kda KDA prefill (TTFT) + cutedsl DSA paged-MQA logits",
+   "decision": "REVERT",
+   "reasons": [
+    "guardrail: ttft 171.3ms > best 151.3ms + 5%"
+   ],
+   "score": 123.24222755658461,
+   "tps": 224.72895423179818,
+   "ttft_ms": 171.2961880000421,
+   "accuracy": 0.9166666666666666,
+   "cost_usd": 1.8734,
+   "patch": "results/patches/0002.diff",
+   "startup_s": 448.03
   }
  ]
 };
