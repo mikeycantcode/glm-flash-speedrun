@@ -111,7 +111,9 @@ def next_id(runs: list[dict]) -> int:
 
 
 def git_changed() -> list[str]:
-    out = sh("git", "status", "--porcelain", "--untracked-files=all")
+    # Not sh(): its .strip() would eat the leading status column of the first line.
+    out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                         cwd=ROOT, check=True, capture_output=True, text=True).stdout
     return [line[3:] for line in out.splitlines() if line.strip()]
 
 
