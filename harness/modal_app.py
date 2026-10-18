@@ -91,14 +91,15 @@ def convert(script: str) -> str:
     out = Path(config.DERIVED_ROOT) / sha
     if (out / ".complete").exists():
         return f"derived/{sha} (cached)"
-    tmp = out.with_name(sha + ".partial")
-    subprocess.run(["rm", "-rf", str(tmp)], check=True)
-    tmp.mkdir(parents=True)
+    # Write in place (renaming a directory on a Modal volume leaves its files unopenable
+    # from other containers); `.complete`, written last, is what marks the output usable.
+    subprocess.run(["rm", "-rf", str(out)], check=True)
+    out.mkdir(parents=True)
     script_path = Path("/tmp/convert.py")
     script_path.write_text(script)
-    subprocess.run(["python", str(script_path), config.MODEL_DIR, str(tmp)], check=True)
-    (tmp / ".complete").write_text(sha)
-    tmp.rename(out)
+    subprocess.run(["python", str(script_path), config.MODEL_DIR, str(out)], check=True)
+    models_vol.commit()
+    (out / ".complete").write_text(sha)
     models_vol.commit()
     return f"derived/{sha}"
 
