@@ -1,0 +1,2 @@
+# Extra Hugging Face repos to put on the read-only model volume, one `repo@revision` per line.
+# Allowed use: speculative-decoding drafts only. Output is still verified by the quality gate.

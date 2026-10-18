@@ -1,0 +1,12 @@
+[project]
+name = "glm-flash-speedrun"
+version = "0.1.0"
+description = "Cheat-resistant latency speedrun for GLM-5.3-Flash (NVFP4) on one Modal B300"
+requires-python = ">=3.12"
+dependencies = ["modal==1.6.2"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
