@@ -137,7 +137,7 @@ def measure_timed(res: StreamResult, tok: Tokenizer) -> dict:
 def run_benchmark(host: str, port: int, tok: Tokenizer, seed: int, log: Callable[[str], None] = print) -> dict:
     model = get_model_id(host, port)
     schedule = build_schedule(seed, tok)
-    timed, probes, violations = [], [], []
+    timed, probes, violations, failures = [], [], [], []
     for i, req in enumerate(schedule):
         res = stream_completion(host, port, model, req)
         if req.kind == "warmup":
@@ -151,6 +151,8 @@ def run_benchmark(host: str, port: int, tok: Tokenizer, seed: int, log: Callable
         else:
             ok = res.status == 200 and grade(req, res.text)
             probes.append({"kind": req.kind, "ok": ok})
+            if not ok and len(failures) < 12:
+                failures.append({"kind": req.kind, "expected": req.answer, "got": res.text[:160]})
             if res.status != 200:
                 violations.append(f"probe http status={res.status} error={res.error}")
 
@@ -168,6 +170,7 @@ def run_benchmark(host: str, port: int, tok: Tokenizer, seed: int, log: Callable
         "probe_correct": sum(p["ok"] for p in probes),
         "probe_total": len(probes),
         "probe_by_kind": {k: f"{sum(v)}/{len(v)}" for k, v in sorted(by_kind.items())},
+        "probe_failures": failures,
         "timed": [{k: v for k, v in m.items() if k != "violations"} for m in timed],
         "violations": violations,
     }

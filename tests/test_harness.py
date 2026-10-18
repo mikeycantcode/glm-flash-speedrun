@@ -50,6 +50,8 @@ def test_probe_answers_are_correct():
 @pytest.mark.parametrize("kind,answer,output,ok", [
     ("arith", "1234", "1234", True),
     ("arith", "1234", "1,234\nbecause...", True),
+    ("arith", "1234", "45 * 22 + 244 = 1234", True),
+    ("arith", "1234", "1234 is wrong, it is 1243", False),
     ("arith", "1234", "The answer is 1234.", True),
     ("arith", "1234", "1243", False),
     ("arith", "1234", "", False),
@@ -124,6 +126,9 @@ def test_foreign_weight_scan(tmp_path):
     with open(allowed / "ok.safetensors", "wb") as f:
         f.truncate(integrity.WEIGHT_MIN_BYTES)
     assert integrity.scan_foreign_weights([str(tmp_path)], [str(allowed)]) == [str(big)]
+    # The same allowed dir reached through another path (bind mount / symlink) is still allowed.
+    (tmp_path / "mnt").symlink_to(allowed, target_is_directory=True)
+    assert integrity.scan_foreign_weights([str(tmp_path / "mnt")], [str(allowed)]) == []
 
 
 def test_seal_matches_harness():

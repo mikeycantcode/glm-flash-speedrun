@@ -99,11 +99,14 @@ def stop_server(proc: subprocess.Popen) -> None:
             continue
 
 
-def tail(path: Path, n: int = 80) -> str:
+def head_tail(path: Path, head: int = 120, tail: int = 40) -> str:
     try:
-        return "\n".join(path.read_text(errors="replace").splitlines()[-n:])
+        lines = path.read_text(errors="replace").splitlines()
     except OSError:
         return ""
+    if len(lines) <= head + tail:
+        return "\n".join(lines)
+    return "\n".join(lines[:head] + [f"... {len(lines) - head - tail} lines omitted ..."] + lines[-tail:])
 
 
 def main(out_path: str) -> None:
@@ -154,7 +157,7 @@ def main(out_path: str) -> None:
     if harness_hash() != record["harness_hash"]:
         record["violations"].append("harness files changed during the run")
     record["container_s"] = round(time.monotonic() - t0, 2)
-    record["server_log_tail"] = tail(log_path)
+    record["server_log"] = head_tail(log_path)
     out = {"record": record, "signature": sign(record, key) if key else ""}
     Path(out_path).write_text(json.dumps(out))
     log(f"done in {record['container_s']}s, violations={len(record['violations'])}")

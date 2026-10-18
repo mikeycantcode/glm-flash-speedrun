@@ -129,11 +129,11 @@ def _first_line(text: str) -> str:
 
 
 def grade(req: Request, output: str) -> bool:
-    line = _first_line(output)
     if req.kind in ("needle_sum", "arith"):
-        m = re.search(r"-?\d[\d,]*", line)
-        return bool(m) and m.group(0).replace(",", "") == req.answer
+        # Last integer: models often show work ("412 + 167 = 579") before the answer.
+        nums = re.findall(r"-?\d[\d,]*\d|-?\d", output)
+        return bool(nums) and nums[-1].replace(",", "") == req.answer
     if req.kind in ("sort", "reverse"):
-        got = [w.strip().strip(".").lower() for w in line.split(",")]
+        got = [w.strip().strip(".").lower() for w in _first_line(output).split(",")]
         return got == req.answer.split(", ")
     raise ValueError(req.kind)

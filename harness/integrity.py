@@ -45,10 +45,20 @@ def scan_foreign_weights(roots: list[str], allowed_prefixes: list[str]) -> list[
 
     Blocks baking a different model into the image and serving it instead.
     """
+    def allowed(dirpath: str) -> bool:
+        # samefile also matches the volume's backing mount (Modal: /__modal/volumes/<id>).
+        for p in allowed_prefixes:
+            try:
+                if dirpath.startswith(p) or os.path.samefile(dirpath, p):
+                    return True
+            except OSError:
+                pass
+        return False
+
     found = []
     for root in roots:
         for dirpath, dirnames, filenames in os.walk(root):
-            if any(dirpath.startswith(p) for p in allowed_prefixes) or dirpath.startswith(("/proc", "/sys", "/dev")):
+            if dirpath.startswith(("/proc", "/sys", "/dev")) or allowed(dirpath):
                 dirnames.clear()
                 continue
             for name in filenames:
