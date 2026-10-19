@@ -90,6 +90,9 @@ def convert(script: str) -> str:
     sha = hashlib.sha256(script.encode()).hexdigest()[:16]
     out = Path(config.DERIVED_ROOT) / sha
     if (out / ".complete").exists():
+        # The server runs as an unprivileged uid: derived files must be world-readable.
+        subprocess.run(["chmod", "-R", "a+rX", str(out)], check=True)
+        models_vol.commit()
         return f"derived/{sha} (cached)"
     # Write in place (renaming a directory on a Modal volume leaves its files unopenable
     # from other containers); `.complete`, written last, is what marks the output usable.
@@ -98,6 +101,7 @@ def convert(script: str) -> str:
     script_path = Path("/tmp/convert.py")
     script_path.write_text(script)
     subprocess.run(["python", str(script_path), config.MODEL_DIR, str(out)], check=True)
+    subprocess.run(["chmod", "-R", "a+rX", str(out)], check=True)
     models_vol.commit()
     (out / ".complete").write_text(sha)
     models_vol.commit()
