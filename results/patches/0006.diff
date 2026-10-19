@@ -1,0 +1,665 @@
+diff --git a/candidate/convert.py b/candidate/convert.py
+new file mode 100644
+index 0000000..d3445b0
+--- /dev/null
++++ b/candidate/convert.py
+@@ -0,0 +1,624 @@
++#!/usr/bin/env python3
++"""Requantize BF16 attention / shared-expert Linear weights of
++nvidia/GLM-5.3-Flash-NVFP4 to 128x128 block FP8 (ModelOpt MIXED_PRECISION).
++
++    python convert.py SRC_DIR DST_DIR            # convert (CPU only)
++    python convert.py SRC_DIR --dry-run          # headers only, print plan
++    python convert.py --tensors-json T.json --dry-run   # plan from a header dump
++    python convert.py --self-test                # quant roundtrip + tiny e2e test
++
++Output layout (verified against SGLang v0.5.22, see NOTES.md):
++  * <mod>.weight            float8_e4m3fn [N, K]
++  * <mod>.weight_scale_inv  float32 [ceil(N/128), ceil(K/128)]  (dequant MULTIPLIER:
++                            w ~= weight.float() * scale_inv, fp8_utils.py:1827)
++  * config.json quantization_config + hf_quant_config.json -> quant_algo
++    MIXED_PRECISION with a quantized_layers map (NVFP4 experts/dense MLP,
++    FP8_PB_WO for the requantized modules). Served as --quantization modelopt_mixed.
++NVFP4 tensors, MTP layer (>= num_hidden_layers), vision tower, router, norms,
++conv, indexer, kv_b_proj, embeddings and lm_head are copied byte-identical.
++"""
++from __future__ import annotations
++
++import argparse
++import copy
++import json
++import os
++import re
++import shutil
++import struct
++import sys
++import time
++from collections import OrderedDict, defaultdict
++
++FP8_MAX = 448.0
++BLOCK = 128
++NVFP4_GROUP = 16
++DTYPE_BYTES = {"BF16": 2, "F16": 2, "F32": 4, "F8_E4M3": 1, "U8": 1, "I8": 1,
++               "I32": 4, "I64": 8, "F64": 8, "BOOL": 1}
++
++# Module suffixes (relative to model.language_model.layers.N.) eligible for FP8.
++# Fused groups must be all-FP8 or all-BF16: SGLang raises "Mixed quant_algo
++# within fused layer" otherwise (modelopt_quant.py:995-999).
++FP8_CANDIDATES = OrderedDict([
++    # KDA linear attention: q/k/v -> QKVParallelLinear "qkv_proj"; o_proj alone.
++    ("self_attn.q_proj", "kda_qkv"),
++    ("self_attn.k_proj", "kda_qkv"),
++    ("self_attn.v_proj", "kda_qkv"),
++    ("self_attn.o_proj", None),
++    # DSA/MLA: q_a + kv_a -> fused_qkv_a_proj_with_mqa (ReplicatedLinear).
++    ("self_attn.q_a_proj", "mla_a"),
++    ("self_attn.kv_a_proj_with_mqa", "mla_a"),
++    ("self_attn.q_b_proj", None),
++    # Shared expert: gate/up -> MergedColumnParallelLinear "gate_up_proj".
++    ("mlp.shared_experts.gate_proj", "shared_gate_up"),
++    ("mlp.shared_experts.up_proj", "shared_gate_up"),
++    ("mlp.shared_experts.down_proj", None),
++])
++# Deliberately NOT converted (kept BF16): b_proj (N=64), f_a/f_b/g_a/g_b (keeps
++# the fused BF16 bfg path, glm5_next.py:427), kv_b_proj (absorbed into w_kc/w_vc
++# by post_load_weights), indexer.*, mlp.gate, hc_*, conv1d, norms, embed, lm_head,
++# visual.*, and everything in layer >= num_hidden_layers (MTP).
++
++LAYER_RE = re.compile(r"^model\.language_model\.layers\.(\d+)\.(.+)\.weight$")
++
++
++# --------------------------------------------------------------------------
++# Header utilities (no torch needed)
++# --------------------------------------------------------------------------
++def read_safetensors_header(path):
++    with open(path, "rb") as f:
++        n = struct.unpack("<Q", f.read(8))[0]
++        hdr = json.loads(f.read(n))
++    hdr.pop("__metadata__", None)
++    return {k: (v["dtype"], list(v["shape"])) for k, v in hdr.items()}
++
++
++def nbytes(dtype, shape):
++    n = DTYPE_BYTES[dtype]
++    for s in shape:
++        n *= s
++    return n
++
++
++def load_headers_from_dir(src):
++    idx_path = os.path.join(src, "model.safetensors.index.json")
++    with open(idx_path) as f:
++        weight_map = json.load(f)["weight_map"]
++    headers = {}
++    for shard in sorted(set(weight_map.values())):
++        for k, v in read_safetensors_header(os.path.join(src, shard)).items():
++            headers[k] = v
++    missing = set(weight_map) - set(headers)
++    if missing:
++        raise SystemExit(f"index lists {len(missing)} tensors absent from shards, e.g. {sorted(missing)[:3]}")
++    return weight_map, headers
++
++
++def load_headers_from_tensors_json(path):
++    """Adapter for the scratchpad dump format: {name: [dtype, nbytes, shape]}."""
++    with open(path) as f:
++        raw = json.load(f)
++    headers = {}
++    for k, v in raw.items():
++        dtype, nb, shape = v
++        assert nbytes(dtype, shape) == nb, (k, v)
++        headers[k] = (dtype, list(shape))
++    return headers
++
++
++# --------------------------------------------------------------------------
++# Planning
++# --------------------------------------------------------------------------
++def make_plan(headers, num_hidden_layers, excludes=()):
++    """Return (fp8_modules: sorted list of module names, nvfp4_modules, reasons)."""
++    ex = [re.compile(p) for p in excludes]
++    cand = {}  # module -> (layer, suffix)
++    reasons = defaultdict(int)
++    for name, (dtype, shape) in headers.items():
++        m = LAYER_RE.match(name)
++        if not m:
++            continue
++        layer, suffix = int(m.group(1)), m.group(2)
++        if suffix not in FP8_CANDIDATES:
++            continue
++        mod = name[: -len(".weight")]
++        if layer >= num_hidden_layers:
++            reasons["skip: MTP layer (kept BF16)"] += 1
++            continue
++        if dtype != "BF16":
++            reasons[f"skip: dtype {dtype}"] += 1
++            continue
++        if len(shape) != 2 or shape[0] % BLOCK or shape[1] % BLOCK:
++            reasons[f"skip: dims {shape} not multiple of {BLOCK}"] += 1
++            continue
++        if any(r.search(mod) for r in ex):
++            reasons["skip: --exclude"] += 1
++            continue
++        if mod + ".weight_scale_inv" in headers or mod + ".weight_scale" in headers:
++            reasons["skip: already has scales"] += 1
++            continue
++        cand[mod] = (layer, suffix)
++
++    # Fused-group consistency: a group is FP8 only if every member is.
++    groups = defaultdict(list)
++    for suffix, g in FP8_CANDIDATES.items():
++        if g:
++            groups[g].append(suffix)
++    fp8 = set(cand)
++    for mod, (layer, suffix) in cand.items():
++        g = FP8_CANDIDATES[suffix]
++        if not g:
++            continue
++        base = mod[: -len(suffix)]
++        members = [base + s for s in groups[g]]
++        present = [mm for mm in members if mm + ".weight" in headers]
++        if not all(mm in cand for mm in present):
++            fp8.discard(mod)
++            reasons[f"skip: fused group {g} not uniformly convertible"] += 1
++
++    nvfp4 = sorted(
++        n[: -len(".weight_scale_2")] for n in headers if n.endswith(".weight_scale_2")
++        and headers.get(n[: -len("_scale_2")], ("",))[0] == "U8"
++    )
++    return sorted(fp8), nvfp4, dict(reasons)
++
++
++def compact_nvfp4_keys(nvfp4_modules):
++    """Collapse per-expert NVFP4 entries to the FusedMoE module prefix
++    (`...mlp.experts`), which SGLang resolves by exact match
++    (modelopt_quant.py:978-980). Dense/non-expert NVFP4 modules stay per-module."""
++    out = set()
++    exp_re = re.compile(r"^(.*\.mlp\.experts)\.\d+\.(gate_proj|up_proj|down_proj)$")
++    for m in nvfp4_modules:
++        mm = exp_re.match(m)
++        out.add(mm.group(1) if mm else m)
++    return sorted(out)
++
++
++def build_quant_configs(orig_cfg, orig_hq, fp8_mods, nvfp4_mods, num_hidden_layers,
++                        per_expert_keys=False):
++    qcfg = orig_cfg.get("quantization_config", {}) or {}
++    oq = (orig_hq or {}).get("quantization", {})
++    nv_keys = nvfp4_mods if per_expert_keys else compact_nvfp4_keys(nvfp4_mods)
++    quantized_layers = OrderedDict()
++    for k in nv_keys:
++        quantized_layers[k] = {"quant_algo": "NVFP4", "group_size": NVFP4_GROUP}
++    for k in fp8_mods:
++        quantized_layers[k] = {"quant_algo": "FP8_PB_WO", "group_size": BLOCK}
++
++    # Rebuild the ignore list: drop patterns that would now shadow FP8 modules
++    # (is_layer_excluded runs BEFORE quantized_layers lookup, modelopt_quant.py:1048-1051).
++    orig_ignore = list(qcfg.get("ignore") or oq.get("exclude_modules") or [])
++    fp8_set = set(fp8_mods)
++
++    def shadows_fp8(pat):
++        rx = re.compile(pat.replace(".", r"\.").replace("*", ".*"))
++        return any(rx.fullmatch(m) for m in fp8_set)
++
++    ignore = [p for p in orig_ignore if not shadows_fp8(p)]
++    n = num_hidden_layers
++    for extra in (f"model.language_model.layers.{n}*", f"model.layers.{n}*", "lm_head",
++                  "model.language_model.embed_tokens", "model.visual*"):
++        if extra not in ignore:
++            ignore.append(extra)
++
++    kv_algo = oq.get("kv_cache_quant_algo", "FP8")
++    producer = qcfg.get("producer") or (orig_hq or {}).get("producer") or {}
++    producer = dict(producer)
++    producer["requantized_by"] = "convert.py (bf16->fp8 128x128 block, attention+shared experts)"
++
++    flat = OrderedDict()
++    flat["quant_method"] = "modelopt"
++    flat["quant_algo"] = "MIXED_PRECISION"
++    flat["kv_cache_scheme"] = qcfg.get("kv_cache_scheme") or {"dynamic": False, "num_bits": 8, "type": "float"}
++    flat["kv_cache_quant_algo"] = kv_algo
++    flat["ignore"] = ignore
++    flat["quantized_layers"] = quantized_layers
++    flat["producer"] = producer
++
++    hq = OrderedDict()
++    hq["producer"] = producer
++    hq["quantization"] = OrderedDict([
++        ("quant_algo", "MIXED_PRECISION"),
++        ("kv_cache_quant_algo", kv_algo),
++        ("exclude_modules", ignore),
++        ("quantized_layers", quantized_layers),
++    ])
++    new_cfg = copy.deepcopy(orig_cfg)
++    new_cfg["quantization_config"] = flat
++    return new_cfg, hq, ignore
++
++
++# --------------------------------------------------------------------------
++# Per-token byte accounting (target layers only)
++# --------------------------------------------------------------------------
++def per_token_bytes(headers, fp8_mods, num_hidden_layers, n_experts, topk):
++    """Bytes of weights read per decode forward for layers < num_hidden_layers.
++    Routed experts count topk/n_experts. Returns dict category -> (before, after)."""
++    fp8_set = set(fp8_mods)
++    cat = defaultdict(lambda: [0, 0])
++    exp_re = re.compile(r"\.mlp\.experts\.\d+\.")
++    mla_layers = {int(re.match(r"^model\.language_model\.layers\.(\d+)\.", n).group(1))
++                  for n in headers if n.endswith("self_attn.kv_a_proj_with_mqa.weight")}
++    for name, (dtype, shape) in headers.items():
++        m = re.match(r"^model\.language_model\.layers\.(\d+)\.(.+)$", name)
++        if not m or int(m.group(1)) >= num_hidden_layers:
++            continue
++        rest = m.group(2)
++        b = nbytes(dtype, shape)
++        frac = topk / n_experts if exp_re.search(name) else 1.0
++        if exp_re.search(name):
++            c = "routed experts (NVFP4, x%d/%d)" % (topk, n_experts)
++        elif rest.startswith("mlp.shared_experts"):
++            c = "shared experts"
++        elif rest.startswith("mlp."):
++            c = "dense MLP / router"
++        elif rest.startswith("self_attn.indexer"):
++            c = "DSA indexer"
++        elif rest.startswith("self_attn.") and int(m.group(1)) in mla_layers:
++            c = "DSA/MLA attention (excl. indexer)"
++        elif rest.startswith("self_attn."):
++            c = "KDA linear attention"
++        else:
++            c = "norms / hc"
++        mod = name[: -len(".weight")] if name.endswith(".weight") else None
++        before = b * frac
++        if mod in fp8_set:
++            N, K = shape
++            after = (N * K + 4 * ((N + BLOCK - 1) // BLOCK) * ((K + BLOCK - 1) // BLOCK)) * frac
++        else:
++            after = before
++        cat[c][0] += before
++        cat[c][1] += after
++    return {k: tuple(v) for k, v in cat.items()}
++
++
++def fmt_gb(x):
++    return f"{x / 1e9:8.3f} GB"
++
++
++def print_plan(headers, fp8_mods, nvfp4_mods, reasons, num_hidden_layers, n_experts, topk):
++    by_suffix = defaultdict(int)
++    before = after = 0
++    for m in fp8_mods:
++        suffix = LAYER_RE.match(m + ".weight").group(2)
++        by_suffix[suffix] += 1
++        N, K = headers[m + ".weight"][1]
++        before += N * K * 2
++        after += N * K + 4 * (N // BLOCK) * (K // BLOCK)
++    print(f"== Plan: {len(fp8_mods)} BF16 Linear weights -> FP8 128x128 block ==")
++    for s in FP8_CANDIDATES:
++        if by_suffix.get(s):
++            print(f"   {s:34s} x{by_suffix[s]}")
++    for r, c in sorted(reasons.items()):
++        print(f"   [{c:5d}] {r}")
++    print(f"   NVFP4 modules untouched: {len(nvfp4_mods)}  (compact keys: {len(compact_nvfp4_keys(nvfp4_mods))})")
++    total = sum(nbytes(*v) for v in headers.values())
++    print(f"   converted tensors: {fmt_gb(before)} -> {fmt_gb(after)}  (saves {fmt_gb(before - after)})")
++    print(f"   checkpoint total : {fmt_gb(total)} -> {fmt_gb(total - before + after)}")
++    pt = per_token_bytes(headers, fp8_mods, num_hidden_layers, n_experts, topk)
++    tb = sum(v[0] for v in pt.values())
++    ta = sum(v[1] for v in pt.values())
++    print(f"== Per-decode-forward weight bytes, target layers 0-{num_hidden_layers - 1} ==")
++    for k, (b, a) in sorted(pt.items(), key=lambda kv: -kv[1][0]):
++        print(f"   {k:34s} {fmt_gb(b)} -> {fmt_gb(a)}")
++    print(f"   {'TOTAL':34s} {fmt_gb(tb)} -> {fmt_gb(ta)}  (saves {fmt_gb(tb - ta)}, {100 * (tb - ta) / tb:.1f}%)")
++    return before, after, tb, ta
++
++
++# --------------------------------------------------------------------------
++# Quantization
++# --------------------------------------------------------------------------
++def quant_block_fp8(w, pow2_scales=True):
++    """w: [N, K] tensor (any float dtype). Returns (fp8 [N,K], scale_inv fp32 [N/128, K/128]).
++    Dequant: w ~= fp8.float() * scale_inv (block-expanded)."""
++    import torch
++    N, K = w.shape
++    assert N % BLOCK == 0 and K % BLOCK == 0, w.shape
++    wf = w.to(torch.float32).reshape(N // BLOCK, BLOCK, K // BLOCK, BLOCK)
++    amax = wf.abs().amax(dim=(1, 3))  # [N/128, K/128]
++    scale = amax / FP8_MAX
++    if pow2_scales:
++        # Power-of-two scale: lossless under SGLang's UE8M0 requant for DeepGEMM
++        # (fp8_utils.py:1908-1938) and exact in BF16. Rounds UP so amax <= 448*scale.
++        scale = torch.where(scale > 0, torch.exp2(torch.ceil(torch.log2(scale))), scale)
++    scale = torch.where(scale > 0, scale, torch.ones_like(scale))
++    q = (wf / scale[:, None, :, None]).clamp_(-FP8_MAX, FP8_MAX)
++    q = q.reshape(N, K).to(torch.float8_e4m3fn)
++    return q.contiguous(), scale.to(torch.float32).contiguous()
++
++
++def dequant_block_fp8(q, s):
++    import torch
++    return (q.to(torch.float32) * s.repeat_interleave(BLOCK, 0).repeat_interleave(BLOCK, 1)
++            [: q.shape[0], : q.shape[1]])
++
++
++# --------------------------------------------------------------------------
++# Conversion
++# --------------------------------------------------------------------------
++def convert(src, dst, args):
++    import torch
++    from safetensors import safe_open
++    from safetensors.torch import save_file
++
++    torch.set_num_threads(args.threads)
++    if os.path.exists(dst) and os.listdir(dst):
++        raise SystemExit(f"DST_DIR {dst} is not empty")
++    os.makedirs(dst, exist_ok=True)
++
++    with open(os.path.join(src, "config.json")) as f:
++        cfg = json.load(f)
++    hq_path = os.path.join(src, "hf_quant_config.json")
++    hq = json.load(open(hq_path)) if os.path.exists(hq_path) else None
++    tc = cfg.get("text_config", cfg)
++    L, E, TK = tc["num_hidden_layers"], tc["n_routed_experts"], tc["num_experts_per_tok"]
++
++    weight_map, headers = load_headers_from_dir(src)
++    fp8_mods, nvfp4_mods, reasons = make_plan(headers, L, args.exclude)
++    if not fp8_mods:
++        raise SystemExit("nothing to convert")
++    print_plan(headers, fp8_mods, nvfp4_mods, reasons, L, E, TK)
++    fp8_weights = {m + ".weight" for m in fp8_mods}
++
++    new_map = {}
++    t0 = time.time()
++    shards = sorted(set(weight_map.values()))
++    max_err = 0.0
++    n_conv = 0
++    for i, shard in enumerate(shards):
++        out = {}
++        with safe_open(os.path.join(src, shard), framework="pt") as f:
++            for name in f.keys():
++                t = f.get_tensor(name)
++                if name in fp8_weights:
++                    q, s = quant_block_fp8(t, pow2_scales=not args.no_pow2_scales)
++                    if args.verify:
++                        err = (dequant_block_fp8(q, s) - t.float()).abs().max().item()
++                        rel = err / max(t.float().abs().max().item(), 1e-30)
++                        max_err = max(max_err, rel)
++                    base = name[: -len(".weight")]
++                    out[name] = q
++                    out[base + ".weight_scale_inv"] = s
++                    n_conv += 1
++                else:
++                    out[name] = t
++        for k in out:
++            new_map[k] = shard
++        save_file(out, os.path.join(dst, shard), metadata={"format": "pt"})
++        del out
++        print(f"[{i + 1}/{len(shards)}] {shard}  converted so far={n_conv}  {time.time() - t0:.0f}s", flush=True)
++
++    # Sanity: every source tensor present; every fp8 module has its scale.
++    assert set(weight_map) <= set(new_map), "lost tensors"
++    for m in fp8_mods:
++        assert m + ".weight_scale_inv" in new_map, m
++
++    total = 0
++    for shard in shards:
++        for k, v in read_safetensors_header(os.path.join(dst, shard)).items():
++            total += nbytes(*v)
++    with open(os.path.join(dst, "model.safetensors.index.json"), "w") as f:
++        json.dump({"metadata": {"total_size": total},
++                   "weight_map": dict(sorted(new_map.items()))}, f, indent=2)
++
++    new_cfg, new_hq, _ = build_quant_configs(cfg, hq, fp8_mods, nvfp4_mods, L, args.per_expert_keys)
++    with open(os.path.join(dst, "config.json"), "w") as f:
++        json.dump(new_cfg, f, indent=4)
++    with open(os.path.join(dst, "hf_quant_config.json"), "w") as f:
++        json.dump(new_hq, f, indent=4)
++
++    skip = {"config.json", "hf_quant_config.json", "model.safetensors.index.json"} | set(shards)
++    for root, dirs, files in os.walk(src):
++        dirs[:] = [d for d in dirs if d not in (".cache", ".git")]
++        for fn in files:
++            rel = os.path.relpath(os.path.join(root, fn), src)
++            if rel in skip or fn.endswith(".safetensors"):
++                continue
++            os.makedirs(os.path.dirname(os.path.join(dst, rel)) or dst, exist_ok=True)
++            shutil.copy2(os.path.join(root, fn), os.path.join(dst, rel))
++
++    print(f"== Done: {n_conv} tensors converted in {time.time() - t0:.0f}s; output total {fmt_gb(total)}")
++    if args.verify:
++        print(f"   max |dequant - w| / max|w| over converted tensors: {max_err:.4e}")
++
++
++# --------------------------------------------------------------------------
++# Self test
++# --------------------------------------------------------------------------
++def self_test():
++    import tempfile
++    import torch
++    from safetensors import safe_open
++    from safetensors.torch import save_file
++
++    torch.manual_seed(0)
++    print("== roundtrip: random [4096, 8192] bf16 (normal*0.02 + 0.1% outliers x20) ==")
++    w = (torch.randn(4096, 8192) * 0.02)
++    mask = torch.rand_like(w) < 1e-3
++    w = torch.where(mask, w * 20, w).to(torch.bfloat16)
++    for pow2 in (False, True):
++        q, s = quant_block_fp8(w, pow2_scales=pow2)
++        assert q.dtype == torch.float8_e4m3fn and s.dtype == torch.float32
++        assert tuple(s.shape) == (4096 // 128, 8192 // 128)
++        d = dequant_block_fp8(q, s)
++        wf = w.float()
++        err = (d - wf).abs()
++        blk_amax = wf.abs().reshape(32, 128, 64, 128).amax(dim=(1, 3)).repeat_interleave(128, 0).repeat_interleave(128, 1)
++        nz = wf.abs() > 1e-3
++        print(f"   pow2={pow2!s:5}  max|err|/block_amax={(err / blk_amax).max():.4e}  "
++              f"max rel err (|w|>1e-3)={(err[nz] / wf.abs()[nz]).max():.4e}  "
++              f"rel Frobenius={err.norm() / wf.norm():.4e}  "
++              f"max|fp8|={q.float().abs().max():.0f}")
++        assert (err / blk_amax).max() < 0.07  # e4m3 half-ulp at top binade = 1/16
++        assert err.norm() / wf.norm() < 0.04
++    # zero block
++    z = torch.zeros(128, 256, dtype=torch.bfloat16)
++    q, s = quant_block_fp8(z)
++    assert torch.all(dequant_block_fp8(q, s) == 0) and torch.all(s == 1)
++
++    print("== e2e: tiny fake checkpoint ==")
++    with tempfile.TemporaryDirectory() as td:
++        src, dst = os.path.join(td, "src"), os.path.join(td, "dst")
++        os.makedirs(src)
++        P = "model.language_model.layers"
++        H = 256
++        tensors = {
++            f"{P}.0.self_attn.q_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.0.self_attn.k_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.0.self_attn.v_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.0.self_attn.o_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.0.self_attn.b_proj.weight": torch.randn(64, H).bfloat16(),
++            f"{P}.0.self_attn.f_a_proj.weight": torch.randn(128, H).bfloat16(),
++            f"{P}.1.self_attn.q_a_proj.weight": torch.randn(384, H).bfloat16(),
++            f"{P}.1.self_attn.kv_a_proj_with_mqa.weight": torch.randn(128, H).bfloat16(),
++            f"{P}.1.self_attn.q_b_proj.weight": torch.randn(512, 384).bfloat16(),
++            f"{P}.1.self_attn.kv_b_proj.weight": torch.randn(512, 128).bfloat16(),
++            f"{P}.1.self_attn.o_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.1.mlp.shared_experts.gate_proj.weight": torch.randn(128, H).bfloat16(),
++            f"{P}.1.mlp.shared_experts.up_proj.weight": torch.randn(128, H).bfloat16(),
++            f"{P}.1.mlp.shared_experts.down_proj.weight": torch.randn(H, 128).bfloat16(),
++            f"{P}.1.mlp.gate.weight": torch.randn(8, H).bfloat16(),
++            f"{P}.1.mlp.experts.0.gate_proj.weight": torch.randint(0, 255, (128, H // 2), dtype=torch.uint8),
++            f"{P}.1.mlp.experts.0.gate_proj.weight_scale": torch.ones(128, H // 16).to(torch.float8_e4m3fn),
++            f"{P}.1.mlp.experts.0.gate_proj.weight_scale_2": torch.tensor(1.0),
++            f"{P}.1.mlp.experts.0.gate_proj.input_scale": torch.tensor(1.0),
++            # MTP layer (num_hidden_layers=2): must stay BF16
++            f"{P}.2.self_attn.o_proj.weight": torch.randn(H, H).bfloat16(),
++            f"{P}.2.mlp.shared_experts.down_proj.weight": torch.randn(H, 128).bfloat16(),
++            "lm_head.weight": torch.randn(512, H).bfloat16(),
++        }
++        names = sorted(tensors)
++        half = len(names) // 2
++        wm = {}
++        for shard, chunk in (("model-00001-of-00002.safetensors", names[:half]),
++                             ("model-00002-of-00002.safetensors", names[half:])):
++            save_file({k: tensors[k] for k in chunk}, os.path.join(src, shard), metadata={"format": "pt"})
++            wm.update({k: shard for k in chunk})
++        json.dump({"metadata": {"total_size": 0}, "weight_map": wm},
++                  open(os.path.join(src, "model.safetensors.index.json"), "w"))
++        cfg = {"architectures": ["Glm5NextForConditionalGeneration"],
++               "text_config": {"num_hidden_layers": 2, "n_routed_experts": 8, "num_experts_per_tok": 2},
++               "quantization_config": {"quant_method": "modelopt", "quant_algo": "NVFP4",
++                                       "kv_cache_scheme": {"dynamic": False, "num_bits": 8, "type": "float"},
++                                       "ignore": ["lm_head", f"{P}.0.self_attn*", f"{P}.1.self_attn*",
++                                                  f"{P}.1.mlp.shared_experts*", f"{P}.1.mlp.gate", f"{P}.2*"]}}
++        json.dump(cfg, open(os.path.join(src, "config.json"), "w"))
++        json.dump({"producer": {"name": "modelopt"}, "quantization": {
++            "quant_algo": "NVFP4", "kv_cache_quant_algo": "FP8", "group_size": 16,
++            "exclude_modules": cfg["quantization_config"]["ignore"]}},
++            open(os.path.join(src, "hf_quant_config.json"), "w"))
++        open(os.path.join(src, "tokenizer.json"), "w").write("{}")
++        ns = argparse.Namespace(threads=2, exclude=[], no_pow2_scales=False, verify=True, per_expert_keys=False)
++        convert(src, dst, ns)
++
++        idx = json.load(open(os.path.join(dst, "model.safetensors.index.json")))["weight_map"]
++        got = {}
++        for shard in set(idx.values()):
++            with safe_open(os.path.join(dst, shard), framework="pt") as f:
++                for k in f.keys():
++                    got[k] = f.get_tensor(k)
++        assert set(got) == set(idx)
++        exp_fp8 = [f"{P}.0.self_attn.{x}" for x in ("q_proj", "k_proj", "v_proj", "o_proj")] + \
++                  [f"{P}.1.self_attn.{x}" for x in ("q_a_proj", "kv_a_proj_with_mqa", "q_b_proj", "o_proj")] + \
++                  [f"{P}.1.mlp.shared_experts.{x}" for x in ("gate_proj", "up_proj", "down_proj")]
++        for m in exp_fp8:
++            assert got[m + ".weight"].dtype == torch.float8_e4m3fn, m
++            s = got[m + ".weight_scale_inv"]
++            N, K = tensors[m + ".weight"].shape
++            assert s.dtype == torch.float32 and tuple(s.shape) == (N // 128, K // 128), (m, s.shape)
++            rel = (dequant_block_fp8(got[m + ".weight"], s) - tensors[m + ".weight"].float()).norm() / tensors[m + ".weight"].float().norm()
++            assert rel < 0.04, (m, rel)
++        for k, t in tensors.items():
++            if k[: -len(".weight")] not in exp_fp8:
++                assert got[k].dtype == t.dtype and torch.equal(got[k].view(torch.uint8) if t.dtype == torch.float8_e4m3fn else got[k], t.view(torch.uint8) if t.dtype == torch.float8_e4m3fn else t), k
++        ncfg = json.load(open(os.path.join(dst, "config.json")))["quantization_config"]
++        nhq = json.load(open(os.path.join(dst, "hf_quant_config.json")))["quantization"]
++        ql = ncfg["quantized_layers"]
++        assert ncfg["quant_algo"] == nhq["quant_algo"] == "MIXED_PRECISION"
++        assert ql[f"{P}.1.mlp.experts"] == {"quant_algo": "NVFP4", "group_size": 16}
++        assert all(ql[m] == {"quant_algo": "FP8_PB_WO", "group_size": 128} for m in exp_fp8)
++        assert f"{P}.0.self_attn*" not in ncfg["ignore"] and f"{P}.1.mlp.gate" in ncfg["ignore"]
++        assert f"{P}.2*" in ncfg["ignore"] and "lm_head" in ncfg["ignore"]
++        assert os.path.exists(os.path.join(dst, "tokenizer.json"))
++        # Emulate SGLang's resolution (modelopt_quant.py:977-1030) on mapped names.
++        mapped = {k.replace("model.language_model.", "model.", 1): v for k, v in ql.items()}
++        packed = {"qkv_proj": ["q_proj", "k_proj", "v_proj"], "gate_up_proj": ["gate_proj", "up_proj"],
++                  "fused_qkv_a_proj_with_mqa": ["q_a_proj", "kv_a_proj_with_mqa"]}
++
++        def resolve(prefix):
++            if prefix in mapped:
++                return mapped[prefix]["quant_algo"]
++            proj = prefix.rsplit(".", 1)[-1]
++            if proj in packed:
++                base = prefix.rsplit(".", 1)[0]
++                algos = {mapped[f"{base}.{s}"]["quant_algo"] for s in packed[proj] if f"{base}.{s}" in mapped}
++                assert len(algos) <= 1, (prefix, algos)
++                if algos:
++                    return algos.pop()
++            for k, v in mapped.items():
++                if k.startswith(prefix + "."):
++                    return v["quant_algo"]
++            return None
++        assert resolve("model.layers.0.self_attn.qkv_proj") == "FP8_PB_WO"
++        assert resolve("model.layers.0.self_attn.b_proj") is None
++        assert resolve("model.layers.1.self_attn.fused_qkv_a_proj_with_mqa") == "FP8_PB_WO"
++        assert resolve("model.layers.1.self_attn.kv_b_proj") is None
++        assert resolve("model.layers.1.mlp.shared_experts.gate_up_proj") == "FP8_PB_WO"
++        assert resolve("model.layers.1.mlp.experts") == "NVFP4"
++        assert resolve("model.layers.1.mlp.gate") is None
++        assert resolve("model.layers.2.self_attn.o_proj") is None
++        print("== self-test PASSED ==")
++
++
++# --------------------------------------------------------------------------
++def main():
++    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("src", nargs="?")
++    ap.add_argument("dst", nargs="?")
++    ap.add_argument("--dry-run", action="store_true", help="read headers only and print the plan")
++    ap.add_argument("--tensors-json", help="dry-run from a {name:[dtype,nbytes,shape]} dump instead of SRC shards")
++    ap.add_argument("--config", help="config.json for --tensors-json mode (default: SRC/config.json or built-in GLM-5.3-Flash values)")
++    ap.add_argument("--exclude", action="append", default=[], help="regex on module name to keep BF16 (repeatable)")
++    ap.add_argument("--no-pow2-scales", action="store_true", help="use exact amax/448 scales instead of power-of-two")
++    ap.add_argument("--per-expert-keys", action="store_true", help="emit one quantized_layers entry per expert proj (ModelOpt style)")
++    ap.add_argument("--verify", action="store_true", help="dequantize each converted tensor and report max error")
++    ap.add_argument("--threads", type=int, default=min(8, os.cpu_count() or 1))
++    ap.add_argument("--self-test", action="store_true")
++    args = ap.parse_args()
++
++    if args.self_test:
++        self_test()
++        return
++    if args.dry_run:
++        if args.tensors_json:
++            headers = load_headers_from_tensors_json(args.tensors_json)
++        else:
++            if not args.src:
++                ap.error("SRC_DIR or --tensors-json required")
++            _, headers = load_headers_from_dir(args.src)
++        cfg_path = args.config or (os.path.join(args.src, "config.json") if args.src else None)
++        if cfg_path and os.path.exists(cfg_path):
++            cfg = json.load(open(cfg_path))
++        else:
++            cfg = {"text_config": {"num_hidden_layers": 45, "n_routed_experts": 288, "num_experts_per_tok": 8}}
++        tc = cfg.get("text_config", cfg)
++        L, E, TK = tc["num_hidden_layers"], tc["n_routed_experts"], tc["num_experts_per_tok"]
++        fp8, nv, reasons = make_plan(headers, L, args.exclude)
++        print_plan(headers, fp8, nv, reasons, L, E, TK)
++        if "quantization_config" in cfg:
++            new_cfg, _, ignore = build_quant_configs(cfg, None, fp8, nv, L, args.per_expert_keys)
++            ql = new_cfg["quantization_config"]["quantized_layers"]
++            algos = defaultdict(int)
++            for v in ql.values():
++                algos[v["quant_algo"]] += 1
++            print(f"== quantized_layers: {dict(algos)}; ignore list: {len(ignore)} patterns ==")
++            print("   ignore:", ignore)
++        return
++    if not (args.src and args.dst):
++        ap.error("SRC_DIR and DST_DIR required")
++    convert(args.src, args.dst, args)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index 4060d3e..8dd65ce 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -5,10 +5,17 @@
+ # with no network. Writable: $HOME (=/cache/home), /tmp, $CACHE_DIR; /cache persists across runs.
+ set -euo pipefail
+ 
++# Fused KDA verify kernel; only engages with --linear-attn-verify-backend triton.
++export SGLANG_OPT_FUSED_KDA_VERIFY=1
++
++# FP8-requantized checkpoint built by candidate/convert.py (BF16 attention + shared experts -> 128x128 block FP8).
++: "${DERIVED_DIR:?derived checkpoint missing: run convert first}"
++
+ exec python3 -m sglang.launch_server \
+-  --model-path "$MODEL_DIR" \
++  --model-path "$DERIVED_DIR" \
+   --served-model-name glm \
+-  --quantization modelopt_fp4 \
++  --quantization modelopt_mixed \
++  --disable-shared-experts-fusion \
+   --tp-size 1 \
+   --dsa-prefill-backend trtllm \
+   --dsa-decode-backend trtllm \
+@@ -19,7 +26,8 @@ exec python3 -m sglang.launch_server \
+   --disable-prefill-cuda-graph \
+   --speculative-algorithm EAGLE \
+   --speculative-eagle-topk 1 \
+-  --speculative-num-steps 3 \
+-  --speculative-num-draft-tokens 4 \
++  --speculative-num-steps 2 \
++  --speculative-num-draft-tokens 3 \
++  --linear-attn-verify-backend triton \
+   --host 127.0.0.1 \
+   --port "$PORT"
