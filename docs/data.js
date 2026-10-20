@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:09 UTC",
+ "generated_at": "2026-10-20 01:14 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 22.2592,
+ "spent_usd": 22.556,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -255,6 +255,23 @@ window.SPEEDRUN = {
    "cost_usd": 0.6664,
    "patch": "results/patches/0010.diff",
    "startup_s": 208.64
+  },
+  {
+   "kind": "experiment",
+   "id": 11,
+   "ts": "2026-10-20T01:12:39Z",
+   "message": "DFlash block-diffusion drafter (modal-labs, block 8, unquantized draft) replacing MTP",
+   "decision": "INVALID",
+   "reasons": [
+    "RuntimeError: server process exited before becoming ready"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": null,
+   "cost_usd": 0.2968,
+   "patch": "results/patches/0011.diff",
+   "startup_s": null
   }
  ]
 };
