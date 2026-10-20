@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:17 UTC",
+ "generated_at": "2026-10-20 01:20 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 22.8486,
+ "spent_usd": 23.145500000000002,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -288,6 +288,23 @@ window.SPEEDRUN = {
    "accuracy": null,
    "cost_usd": 0.2926,
    "patch": "results/patches/0012.diff",
+   "startup_s": null
+  },
+  {
+   "kind": "experiment",
+   "id": 13,
+   "ts": "2026-10-20T01:18:14Z",
+   "message": "DFlash drafter (block 8) + batch-1 pools + explicit --page-size 256 (DSA kpool needs 4x64 physical pages)",
+   "decision": "INVALID",
+   "reasons": [
+    "RuntimeError: server process exited before becoming ready"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": null,
+   "cost_usd": 0.2969,
+   "patch": "results/patches/0013.diff",
    "startup_s": null
   }
  ]

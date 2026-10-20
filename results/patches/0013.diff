@@ -1,0 +1,36 @@
+diff --git a/candidate/extra_models.txt b/candidate/extra_models.txt
+index 43f4c69..d01ad1f 100644
+--- a/candidate/extra_models.txt
++++ b/candidate/extra_models.txt
+@@ -1,2 +1,3 @@
+ # Extra Hugging Face repos to put on the read-only model volume, one `repo@revision` per line.
+ # Allowed use: speculative-decoding drafts only. Output is still verified by the quality gate.
++modal-labs/GLM-5.3-Flash-DFlash@dae6d319510889a7f1ac5242d5b7fb2d5d95eb05  # DFlash block-diffusion drafter (MIT)
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index f3eac23..b334574 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -19,13 +19,18 @@ exec python3 -m sglang.launch_server \
+   --dsa-decode-backend trtllm \
+   --kv-cache-dtype fp8_e4m3 \
+   --moe-runner-backend flashinfer_trtllm \
+-  --mem-fraction-static 0.85 \
++  --mem-fraction-static 0.90 \
++  --max-running-requests 4 \
++  --max-total-tokens 65536 \
++  --page-size 256 \
+   --cuda-graph-max-bs-decode 1 \
+   --disable-prefill-cuda-graph \
+-  --speculative-algorithm EAGLE \
+-  --speculative-eagle-topk 1 \
+-  --speculative-num-steps 2 \
+-  --speculative-num-draft-tokens 3 \
++  --speculative-algorithm DFLASH \
++  --speculative-draft-model-path "$MODELS_ROOT/modal-labs/GLM-5.3-Flash-DFlash/dae6d319510889a7f1ac5242d5b7fb2d5d95eb05" \
++  --speculative-dflash-block-size 8 \
++  --speculative-draft-model-quantization unquant \
++  --speculative-draft-attention-backend trtllm_mha \
++  --speculative-draft-kv-cache-dtype fp8_e4m3 \
+   --linear-attn-verify-backend triton \
+   --disable-radix-cache \
+   --host 127.0.0.1 \
