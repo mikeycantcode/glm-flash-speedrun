@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:14 UTC",
+ "generated_at": "2026-10-20 01:17 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 22.556,
+ "spent_usd": 22.8486,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -271,6 +271,23 @@ window.SPEEDRUN = {
    "accuracy": null,
    "cost_usd": 0.2968,
    "patch": "results/patches/0011.diff",
+   "startup_s": null
+  },
+  {
+   "kind": "experiment",
+   "id": 12,
+   "ts": "2026-10-20T01:15:28Z",
+   "message": "DFlash drafter (block 8) replacing MTP + size KV/mamba pools for batch 1 (max 4 reqs, 64k tokens) so the draft fits",
+   "decision": "INVALID",
+   "reasons": [
+    "RuntimeError: server process exited before becoming ready"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": null,
+   "cost_usd": 0.2926,
+   "patch": "results/patches/0012.diff",
    "startup_s": null
   }
  ]
