@@ -1,0 +1,21 @@
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index f3eac23..bb24a64 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -20,12 +20,14 @@ exec python3 -m sglang.launch_server \
+   --kv-cache-dtype fp8_e4m3 \
+   --moe-runner-backend flashinfer_trtllm \
+   --mem-fraction-static 0.85 \
++  --max-running-requests 4 \
++  --max-total-tokens 65536 \
+   --cuda-graph-max-bs-decode 1 \
+   --disable-prefill-cuda-graph \
+   --speculative-algorithm EAGLE \
+   --speculative-eagle-topk 1 \
+-  --speculative-num-steps 2 \
+-  --speculative-num-draft-tokens 3 \
++  --speculative-num-steps 3 \
++  --speculative-num-draft-tokens 4 \
+   --linear-attn-verify-backend triton \
+   --disable-radix-cache \
+   --host 127.0.0.1 \

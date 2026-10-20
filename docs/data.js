@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:26 UTC",
+ "generated_at": "2026-10-20 01:33 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 23.7728,
+ "spent_usd": 24.6347,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -332,6 +332,24 @@ window.SPEEDRUN = {
    "cost_usd": 0.6273,
    "patch": "results/patches/0014.diff",
    "startup_s": 239.86
+  },
+  {
+   "kind": "experiment",
+   "id": 15,
+   "ts": "2026-10-20T01:27:35Z",
+   "message": "MTP 3 draft steps on current best (fused verify, no radix) + batch-1 KV/mamba pool caps (cheaper boot)",
+   "decision": "REVERT",
+   "reasons": [
+    "guardrail: tps 216.5 < best 231.0 - 5%",
+    "score 158.16 does not beat best 165.44 by >1.0%"
+   ],
+   "score": 158.15841390955174,
+   "tps": 216.48924484021165,
+   "ttft_ms": 104.9774035000155,
+   "accuracy": 0.90625,
+   "cost_usd": 0.8619,
+   "patch": "results/patches/0015.diff",
+   "startup_s": 285.54
   }
  ]
 };
