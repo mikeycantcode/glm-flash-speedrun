@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:33 UTC",
+ "generated_at": "2026-10-20 03:07 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 24.6347,
+ "spent_usd": 26.6893,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -350,6 +350,32 @@ window.SPEEDRUN = {
    "cost_usd": 0.8619,
    "patch": "results/patches/0015.diff",
    "startup_s": 285.54
+  },
+  {
+   "kind": "experiment",
+   "id": 16,
+   "ts": "2026-10-20T02:52:43Z",
+   "message": "DFlash2 drafter (incoai, leaderboard #1 recipe: block 64, draft window 2048) + patch resolve_greedy_mask [:bs] crash + 8k token pool",
+   "decision": "INVALID",
+   "reasons": [
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": 0.0,
+   "cost_usd": 2.0546,
+   "patch": "results/patches/0016.diff",
+   "startup_s": 879.44
   }
  ]
 };
