@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 00:17 UTC",
+ "generated_at": "2026-10-20 00:30 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 19.8941,
+ "spent_usd": 21.5928,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -221,6 +221,23 @@ window.SPEEDRUN = {
    "cost_usd": 3.0832,
    "patch": "results/patches/0008.diff",
    "startup_s": 867.09
+  },
+  {
+   "kind": "experiment",
+   "id": 9,
+   "ts": "2026-10-20T00:18:32Z",
+   "message": "MTP 2 steps + triton fused KDA verify + no radix cache + overlap plan stream (overhead trims on exp 3 base)",
+   "decision": "KEEP",
+   "reasons": [
+    "score 140.23 -> 165.44"
+   ],
+   "score": 165.43869678801406,
+   "tps": 230.9767927532819,
+   "ttft_ms": 104.40600324994875,
+   "accuracy": 0.84375,
+   "cost_usd": 1.6987,
+   "patch": "results/patches/0009.diff",
+   "startup_s": 371.42
   }
  ]
 };

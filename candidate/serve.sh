@@ -5,6 +5,11 @@
 # with no network. Writable: $HOME (=/cache/home), /tmp, $CACHE_DIR; /cache persists across runs.
 set -euo pipefail
 
+# Fused KDA verify kernel; only engages with --linear-attn-verify-backend triton.
+export SGLANG_OPT_FUSED_KDA_VERIFY=1
+# Run scheduler plan prep on a side stream (overlap with GPU work).
+export SGLANG_ENABLE_OVERLAP_PLAN_STREAM=1
+
 exec python3 -m sglang.launch_server \
   --model-path "$MODEL_DIR" \
   --served-model-name glm \
@@ -19,7 +24,9 @@ exec python3 -m sglang.launch_server \
   --disable-prefill-cuda-graph \
   --speculative-algorithm EAGLE \
   --speculative-eagle-topk 1 \
-  --speculative-num-steps 3 \
-  --speculative-num-draft-tokens 4 \
+  --speculative-num-steps 2 \
+  --speculative-num-draft-tokens 3 \
+  --linear-attn-verify-backend triton \
+  --disable-radix-cache \
   --host 127.0.0.1 \
   --port "$PORT"
