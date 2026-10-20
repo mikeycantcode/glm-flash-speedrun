@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-19 23:53 UTC",
+ "generated_at": "2026-10-20 00:17 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 16.8109,
+ "spent_usd": 19.8941,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -204,6 +204,23 @@ window.SPEEDRUN = {
    "cost_usd": 2.8948,
    "patch": "results/patches/0007.diff",
    "startup_s": 1158.54
+  },
+  {
+   "kind": "experiment",
+   "id": 8,
+   "ts": "2026-10-19T23:54:31Z",
+   "message": "FP8 requant + flashinfer_trtllm FP8 GEMM backend (low-latency) + metadata glue graph + MTP 2 steps + fused KDA verify",
+   "decision": "REVERT",
+   "reasons": [
+    "score 136.71 does not beat best 140.23 by >1.0%"
+   ],
+   "score": 136.70796317482,
+   "tps": 240.55684965995323,
+   "ttft_ms": 200.70310699998117,
+   "accuracy": 0.8645833333333334,
+   "cost_usd": 3.0832,
+   "patch": "results/patches/0008.diff",
+   "startup_s": 867.09
   }
  ]
 };
