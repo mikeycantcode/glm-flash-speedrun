@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 00:30 UTC",
+ "generated_at": "2026-10-20 01:09 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 21.5928,
+ "spent_usd": 22.2592,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -238,6 +238,23 @@ window.SPEEDRUN = {
    "cost_usd": 1.6987,
    "patch": "results/patches/0009.diff",
    "startup_s": 371.42
+  },
+  {
+   "kind": "experiment",
+   "id": 10,
+   "ts": "2026-10-20T01:05:11Z",
+   "message": "BF16 GEMMs via cuBLAS (--bf16-gemm-backend torch, drop CuTe-DSL TGV) + flashinfer DSA top-k",
+   "decision": "REVERT",
+   "reasons": [
+    "score 165.46 does not beat best 165.44 by >1.0%"
+   ],
+   "score": 165.4646401732496,
+   "tps": 234.04534555896979,
+   "ttft_ms": 107.14810600016733,
+   "accuracy": 0.8645833333333334,
+   "cost_usd": 0.6664,
+   "patch": "results/patches/0010.diff",
+   "startup_s": 208.64
   }
  ]
 };

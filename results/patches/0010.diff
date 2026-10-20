@@ -1,0 +1,12 @@
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index f3eac23..2631ded 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -28,5 +28,7 @@ exec python3 -m sglang.launch_server \
+   --speculative-num-draft-tokens 3 \
+   --linear-attn-verify-backend triton \
+   --disable-radix-cache \
++  --bf16-gemm-backend torch \
++  --dsa-topk-backend flashinfer \
+   --host 127.0.0.1 \
+   --port "$PORT"
