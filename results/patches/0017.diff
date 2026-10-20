@@ -1,0 +1,54 @@
+diff --git a/candidate/extra_models.txt b/candidate/extra_models.txt
+index 43f4c69..08916c7 100644
+--- a/candidate/extra_models.txt
++++ b/candidate/extra_models.txt
+@@ -1,2 +1,4 @@
+ # Extra Hugging Face repos to put on the read-only model volume, one `repo@revision` per line.
+ # Allowed use: speculative-decoding drafts only. Output is still verified by the quality gate.
++modal-labs/GLM-5.3-Flash-DFlash@dae6d319510889a7f1ac5242d5b7fb2d5d95eb05  # DFlash block-diffusion drafter (MIT)
++incoai/GLM-5.3-Flash-DFlash2@bf582e4eacc1810f76656d1811693ff6c6737d2a  # DFlash2 drafter + candidate selector, 1B BF16 (CC BY-NC-ND 4.0, research/eval)
+diff --git a/candidate/image.py b/candidate/image.py
+index 3857dff..3a2f593 100644
+--- a/candidate/image.py
++++ b/candidate/image.py
+@@ -14,4 +14,11 @@ def build_image() -> modal.Image:
+         modal.Image.from_registry(SGLANG_IMAGE)
+         .entrypoint([])
+         .run_commands("python3 -m pip install --no-cache-dir 'transformers==5.20.1'")
++        # resolve_greedy_mask returns top_ks unsliced; the DFLASH worker copies it into a
++        # [:bs] buffer and crashes ("shape [1] doesn't match the broadcast shape [2]").
++        .run_commands(
++            "f=$(python3 -c 'import sglang.srt.speculative.dspark_components.dspark_draft as m; print(m.__file__)')"
++            " && sed -i 's/return (sampling_info.top_ks <= 1).view(-1)$/return (sampling_info.top_ks <= 1).view(-1)[:bs]/' $f"
++            " && grep -q 'view(-1)\\[:bs\\]' $f"
++        )
+     )
+diff --git a/candidate/serve.sh b/candidate/serve.sh
+index f3eac23..acfd9be 100755
+--- a/candidate/serve.sh
++++ b/candidate/serve.sh
+@@ -19,13 +19,18 @@ exec python3 -m sglang.launch_server \
+   --dsa-decode-backend trtllm \
+   --kv-cache-dtype fp8_e4m3 \
+   --moe-runner-backend flashinfer_trtllm \
+-  --mem-fraction-static 0.85 \
+-  --cuda-graph-max-bs-decode 1 \
++  --mem-fraction-static 0.90 \
++  --max-running-requests 2 \
++  --max-total-tokens 8192 \
++  --cuda-graph-max-bs-decode 4 \
+   --disable-prefill-cuda-graph \
+-  --speculative-algorithm EAGLE \
+-  --speculative-eagle-topk 1 \
+-  --speculative-num-steps 2 \
+-  --speculative-num-draft-tokens 3 \
++  --speculative-algorithm DFLASH \
++  --speculative-draft-model-path "$MODELS_ROOT/incoai/GLM-5.3-Flash-DFlash2/bf582e4eacc1810f76656d1811693ff6c6737d2a" \
++  --speculative-num-draft-tokens 64 \
++  --speculative-draft-window-size 2048 \
++  --speculative-draft-model-quantization unquant \
++  --speculative-draft-attention-backend flashinfer \
++  --speculative-draft-kv-cache-dtype fp8_e4m3 \
+   --linear-attn-verify-backend triton \
+   --disable-radix-cache \
+   --host 127.0.0.1 \

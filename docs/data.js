@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 03:07 UTC",
+ "generated_at": "2026-10-20 03:20 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 26.6893,
+ "spent_usd": 28.066,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -376,6 +376,25 @@ window.SPEEDRUN = {
    "cost_usd": 2.0546,
    "patch": "results/patches/0016.diff",
    "startup_s": 879.44
+  },
+  {
+   "kind": "experiment",
+   "id": 17,
+   "ts": "2026-10-20T03:10:20Z",
+   "message": "DFlash2 (block 64, window 2048) + greedy_mask patch; fix sampler sizing: decode cuda graphs up to bs 4, max 2 running reqs (exp 16 crashed bs=2 > graph max 1)",
+   "decision": "REVERT",
+   "reasons": [
+    "guardrail: tps 66.5 < best 231.0 - 5%",
+    "guardrail: ttft 167.4ms > best 104.4ms + 50%",
+    "score 61.61 does not beat best 165.44 by >1.0%"
+   ],
+   "score": 61.608816419957634,
+   "tps": 66.46719542794116,
+   "ttft_ms": 167.411847999972,
+   "accuracy": 0.8020833333333334,
+   "cost_usd": 1.3767,
+   "patch": "results/patches/0017.diff",
+   "startup_s": 449.18
   }
  ]
 };
