@@ -1,8 +1,8 @@
 window.SPEEDRUN = {
- "generated_at": "2026-10-20 01:20 UTC",
+ "generated_at": "2026-10-20 01:26 UTC",
  "repo": "https://github.com/mikeycantcode/glm-flash-speedrun",
  "budget_usd": 30.0,
- "spent_usd": 23.145500000000002,
+ "spent_usd": 23.7728,
  "keep_threshold": 0.01,
  "baseline": {
   "tps": 130.64947461755435,
@@ -306,6 +306,32 @@ window.SPEEDRUN = {
    "cost_usd": 0.2969,
    "patch": "results/patches/0013.diff",
    "startup_s": null
+  },
+  {
+   "kind": "experiment",
+   "id": 14,
+   "ts": "2026-10-20T01:21:54Z",
+   "message": "DFlash drafter (block 8) on flashinfer draft attention (trtllm_mha resets DSA page size: sglang#45115) + batch-1 pools",
+   "decision": "INVALID",
+   "reasons": [
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')",
+    "probe http status=-1 error=ConnectionRefusedError(111, 'Connection refused')"
+   ],
+   "score": null,
+   "tps": null,
+   "ttft_ms": null,
+   "accuracy": 0.0,
+   "cost_usd": 0.6273,
+   "patch": "results/patches/0014.diff",
+   "startup_s": 239.86
   }
  ]
 };
